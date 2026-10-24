@@ -1,0 +1,5 @@
+streamlit
+playwright
+python-dotenv
+requests
+beautifulsoup4

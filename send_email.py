@@ -9,9 +9,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-
 # ---------------------------------------------------------
-# Load Environment Variables
+# LOAD ENVIRONMENT VARIABLES
 # ---------------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,6 +20,8 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 GMAIL_USER = os.getenv("GMAIL_USER")
 APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+
+# Default recipients from .env
 RECIPIENTS = [
     email.strip()
     for email in os.getenv("EMAIL_RECIPIENTS", "").split(",")
@@ -29,15 +30,38 @@ RECIPIENTS = [
 
 
 # ---------------------------------------------------------
-# Send PDF Email
+# SEND PDF EMAIL
 # ---------------------------------------------------------
 
-def send_pdf_email(pdf_path):
+def send_pdf_email(pdf_path, recipients=None):
+    """
+    Send the PDF to the supplied recipients.
+
+    If recipients are supplied by the frontend, use those.
+    Otherwise, use EMAIL_RECIPIENTS from .env.
+
+    Returns True if SMTP accepts all recipients.
+    Returns False if sending fails or any recipient is rejected.
+    """
 
     server = None
 
+    # Use frontend recipients if provided; otherwise use .env
+    actual_recipients = (
+        [
+            email.strip()
+            for email in recipients
+            if email and email.strip()
+        ]
+        if recipients is not None
+        else RECIPIENTS.copy()
+    )
+
     try:
-        # Validate configuration
+        # -------------------------------------------------
+        # VALIDATE CONFIGURATION
+        # -------------------------------------------------
+
         missing = []
 
         if not GMAIL_USER:
@@ -46,14 +70,47 @@ def send_pdf_email(pdf_path):
         if not APP_PASSWORD:
             missing.append("GMAIL_APP_PASSWORD")
 
-        if not RECIPIENTS:
-            missing.append("EMAIL_RECIPIENTS")
-
         if missing:
             raise ValueError(
                 "Missing environment variables: "
                 + ", ".join(missing)
             )
+
+        if not actual_recipients:
+            raise ValueError(
+                "Please provide at least one recipient email address."
+            )
+
+        # Remove duplicate addresses
+        actual_recipients = list(
+            dict.fromkeys(
+                email.lower()
+                for email in actual_recipients
+            )
+        )
+
+        # Basic email format validation
+        invalid_recipients = [
+            email
+            for email in actual_recipients
+            if (
+                "@" not in email
+                or email.startswith("@")
+                or email.endswith("@")
+                or "." not in email.rsplit("@", 1)[-1]
+                or any(char.isspace() for char in email)
+            )
+        ]
+
+        if invalid_recipients:
+            raise ValueError(
+                "Invalid email address format: "
+                + ", ".join(invalid_recipients)
+            )
+
+        # -------------------------------------------------
+        # VALIDATE PDF
+        # -------------------------------------------------
 
         pdf_path = Path(pdf_path)
 
@@ -63,11 +120,16 @@ def send_pdf_email(pdf_path):
             )
 
         print("\n--- Preparing Email ---")
+        print("PDF attached:", pdf_path.name)
+        print("Recipients:", ", ".join(actual_recipients))
 
-        # Create email
+        # -------------------------------------------------
+        # CREATE EMAIL
+        # -------------------------------------------------
+
         msg = MIMEMultipart()
         msg["From"] = GMAIL_USER
-        msg["To"] = ", ".join(RECIPIENTS)
+        msg["To"] = ", ".join(actual_recipients)
         msg["Subject"] = "Daily Tech News - Latest Updates"
 
         body = """
@@ -76,7 +138,7 @@ def send_pdf_email(pdf_path):
             Your Daily Tech News PDF is ready.
 
             The attached report contains articles from
-            Hacker News and TechCrunch.
+            TechCrunch and Hacker News.
 
             Happy reading!
 
@@ -85,7 +147,10 @@ def send_pdf_email(pdf_path):
 
         msg.attach(MIMEText(body, "plain"))
 
-        # Attach PDF
+        # -------------------------------------------------
+        # ATTACH PDF
+        # -------------------------------------------------
+
         with open(pdf_path, "rb") as pdf_file:
             attachment = MIMEApplication(
                 pdf_file.read(),
@@ -100,10 +165,12 @@ def send_pdf_email(pdf_path):
 
         msg.attach(attachment)
 
-        print("PDF attached:", pdf_path.name)
+        # -------------------------------------------------
+        # CONNECT TO GMAIL
+        # -------------------------------------------------
+
         print("Connecting to Gmail SMTP server...")
 
-        # Connect securely
         server = smtplib.SMTP(
             "smtp.gmail.com",
             587,
@@ -114,35 +181,53 @@ def send_pdf_email(pdf_path):
         server.starttls()
         server.ehlo()
 
-        # Authenticate
         print("Logging into Gmail...")
         server.login(GMAIL_USER, APP_PASSWORD)
 
-        # Send message
+        # -------------------------------------------------
+        # SEND EMAIL
+        # -------------------------------------------------
+
         print("\n--- Sending Email to Recipients ---")
 
         failed_recipients = server.send_message(
             msg,
             from_addr=GMAIL_USER,
-            to_addrs=RECIPIENTS,
+            to_addrs=actual_recipients,
         )
 
         successful_recipients = [
             email
-            for email in RECIPIENTS
+            for email in actual_recipients
             if email not in failed_recipients
         ]
 
         if successful_recipients:
-            print("Email accepted for:", ", ".join(successful_recipients))
+            print(
+                "SMTP accepted:",
+                ", ".join(successful_recipients),
+            )
 
         if failed_recipients:
-            print("Failed recipients:")
+            print("\nSMTP rejected these recipients:")
+
             for email, error in failed_recipients.items():
                 print(f"  {email}: {error}")
 
-        print("Success! Email sent.")
-        print("Recipients:", ", ".join(RECIPIENTS))
+        # Only report complete SMTP acceptance as success
+        if failed_recipients:
+            print(
+                "\nEmail was not accepted for all recipients."
+            )
+            return False
+
+        print("\nSuccess! SMTP accepted all recipients.")
+        print("Recipients:", ", ".join(actual_recipients))
+        print(
+            "Note: SMTP acceptance does not guarantee "
+            "final inbox delivery."
+        )
+
         return True
 
     except Exception:
@@ -155,4 +240,4 @@ def send_pdf_email(pdf_path):
             try:
                 server.quit()
             except Exception:
-                print(traceback.format_exc())
+                pass
