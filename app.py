@@ -14,7 +14,13 @@ from tech_news_pdf import (
     PDF_PATH,
 )
 from send_email import send_pdf_email
+import subprocess
+import sys
 
+subprocess.run(
+    [sys.executable, "-m", "playwright", "install", "chromium"],
+    check=True
+)
 
 # ---------------------------------------------------------
 # CONFIGURATION
