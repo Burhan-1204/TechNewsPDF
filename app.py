@@ -1,5 +1,6 @@
 import os
 import re
+import hmac
 from pathlib import Path
 
 import streamlit as st
@@ -27,6 +28,82 @@ st.set_page_config(
     page_icon="📰",
     layout="wide",
 )
+
+
+# ---------------------------------------------------------
+# BASIC SIGN-IN
+# Configure APP_USERNAME and APP_PASSWORD in Streamlit
+# Community Cloud Secrets or as environment variables.
+# Never hardcode credentials or commit them to GitHub.
+# ---------------------------------------------------------
+
+def get_setting(name):
+    """Read a setting from Streamlit secrets, then environment variables."""
+    try:
+        value = st.secrets.get(name)
+        if value is not None and str(value).strip():
+            return str(value)
+    except Exception:
+        # Local development may not have a Streamlit secrets file.
+        pass
+
+    value = os.getenv(name)
+    return value.strip() if value else None
+
+
+APP_USERNAME = get_setting("APP_USERNAME")
+APP_PASSWORD = get_setting("APP_PASSWORD")
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not APP_USERNAME or not APP_PASSWORD:
+    st.title("📰 Daily Tech News Generator")
+    st.error(
+        "Sign-in is not configured yet. Set APP_USERNAME and APP_PASSWORD "
+        "in your local environment or Streamlit Community Cloud secrets, "
+        "then restart the app."
+    )
+    st.stop()
+
+if not st.session_state.authenticated:
+    st.title("📰 Daily Tech News Generator")
+    st.subheader("Sign in")
+    st.caption("Please sign in to access the Daily Tech News Generator.")
+
+    with st.form("login_form", clear_on_submit=False):
+        entered_username = st.text_input("Username")
+        entered_password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button(
+            "Sign in",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if submitted:
+        username_ok = hmac.compare_digest(
+            entered_username.strip(),
+            APP_USERNAME,
+        )
+        password_ok = hmac.compare_digest(
+            entered_password,
+            APP_PASSWORD,
+        )
+
+        if username_ok and password_ok:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect username or password.")
+
+    st.stop()
+
+with st.sidebar:
+    st.caption("Signed in")
+    if st.button("Sign out", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.pdf_ready = False
+        st.rerun()
 
 # Initialize session state
 if "techcrunch_articles" not in st.session_state:
@@ -269,12 +346,14 @@ if st.session_state.pdf_ready:
 
                         if success:
                             st.success(
-                                "The email has been sent successfully."
+                                "The email was accepted by the SMTP server "
+                                "for all recipients. This does not guarantee "
+                                "final inbox delivery."
                             )
                         else:
                             st.error(
-                                "Email sending failed. Please perform "
-                                "a rerun."
+                                "Email sending failed. Check the terminal "
+                                "output for details."
                             )
                     except Exception as exc:
                         st.error(f"Email error: {exc}")
@@ -291,13 +370,7 @@ if st.session_state.pdf_ready:
 
 st.divider()
 
-st.markdown(
-    """
-    <div style="font-size: 0.8rem; color: gray;">
-        Daily Tech News Generator<br>
-        Sources: TechCrunch | Hacker News<br>
-        Article titles and links are provided for reference. Rankings and publication order reflect collection time.
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.caption(
+    "Daily Tech News Generator | "
+    "TechCrunch first · Hacker News second"
 )
