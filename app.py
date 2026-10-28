@@ -235,18 +235,20 @@ if st.button(
 
                 st.success(
                     "PDF generated successfully! "
-                    f"TechCrunch: {len(techcrunch_articles)} articles; "
-                    f"Hacker News: {len(hacker_articles)} articles."
+                    # f"TechCrunch: {len(techcrunch_articles)} articles; "
+                    # f"Hacker News: {len(hacker_articles)} articles."
                 )
             else:
                 st.error(
                     "PDF generation finished, but the expected "
                     "PDF file was not found."
+                    "Please perform a re run."
                 )
 
     except Exception as exc:
         st.session_state.pdf_ready = False
-        st.error(f"An error occurred: {exc}")
+        # st.error(f"An error occurred: {exc}")
+        st.error(f"Please perform a re run")
 
 
 # ---------------------------------------------------------
@@ -380,5 +382,5 @@ st.divider()
 
 st.caption(
     "Daily Tech News Generator | "
-    "TechCrunch first · Hacker News second"
+    "TechCrunch · Hacker News"
 )
