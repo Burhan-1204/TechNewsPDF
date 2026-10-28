@@ -3,6 +3,8 @@ from pathlib import Path
 from html import escape
 from playwright.sync_api import sync_playwright
 from send_email import send_pdf_email
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 
 # ---------------------------------------------------------
 # Configuration
@@ -31,52 +33,59 @@ PDF_PATH = desktop / "Daily_News.pdf"
 # ---------------------------------------------------------
 # Collect news from Hacker News page
 # ---------------------------------------------------------
+
 def collect_news(page):
-    """Collect the first 10 ranked articles from Hacker News."""
+    url = "https://news.ycombinator.com/"
 
-    print("\nOpening Hacker News...")
-    page.goto(NEWS_URL, wait_until="domcontentloaded", timeout=60000)
+    print("Opening Hacker News...")
 
-    page.locator("tr.athing").first.wait_for(
-        state="visible", timeout=20000
+    response = page.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=60000
     )
 
+    print("Current URL:", page.url)
+    print("Page title:", page.title())
+
+    try:
+        page.locator("tr.athing").first.wait_for(
+            state="attached",
+            timeout=20000
+        )
+    except PlaywrightTimeoutError:
+        print("Hacker News article rows were not found.")
+        print("Current URL:", page.url)
+        print("Page title:", page.title())
+        print("Page content:", page.locator("body").inner_text()[:1000])
+
+        return []
+
     articles = []
-    story_rows = page.locator("tr.athing")
-    total = story_rows.count()
+    rows = page.locator("tr.athing")
 
-    for index in range(min(total, ARTICLE_LIMIT)):
-        row = story_rows.nth(index)
-        link = row.locator(".titleline > a").first
+    for i in range(min(rows.count(), 10)):
+        row = rows.nth(i)
+        link = row.locator("span.titleline > a").first
 
-        title = link.inner_text().strip()
-        url = link.get_attribute("href")
-
-        if not url:
+        if link.count() == 0:
             continue
 
-        # Resolve relative URLs, if any
-        url = page.url if url == "" else url
-        if url.startswith("/"):
-            url = "https://news.ycombinator.com" + url
+        title = link.inner_text().strip()
+        href = link.get_attribute("href")
 
-        # Get score from the row immediately below the story
-        score = "Not available"
-        subtext = row.locator(
-            "xpath=following-sibling::tr[1]"
-        ).locator(".score")
+        if title and href:
+            if href.startswith("item?"):
+                href = "https://news.ycombinator.com/" + href
+            elif href.startswith("/"):
+                href = "https://news.ycombinator.com" + href
 
-        if subtext.count() > 0:
-            score = subtext.first.inner_text().strip()
+            articles.append({
+                "title": title,
+                "link": href
+            })
 
-        articles.append({
-            "rank": index + 1,
-            "title": title,
-            "url": url,
-            "score": score,
-            "source": "Hacker News",
-        })
-
+    print(f"Collected {len(articles)} Hacker News articles.")
     return articles
 
 
