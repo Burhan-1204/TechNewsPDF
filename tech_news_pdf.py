@@ -4,6 +4,7 @@ from html import escape
 from playwright.sync_api import sync_playwright
 from send_email import send_pdf_email
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from urllib.parse import urljoin
 
 
 # ---------------------------------------------------------
@@ -35,37 +36,52 @@ PDF_PATH = desktop / "Daily_News.pdf"
 # ---------------------------------------------------------
 
 def collect_news(page):
-    url = "https://news.ycombinator.com/"
+    """Collect the top 10 Hacker News stories with titles and URLs."""
 
-    print("Opening Hacker News...")
+    print("\nOpening Hacker News...")
 
     response = page.goto(
-        url,
+        NEWS_URL,
         wait_until="domcontentloaded",
         timeout=60000
     )
+
+    if response:
+        print("HTTP Status:", response.status)
 
     print("Current URL:", page.url)
     print("Page title:", page.title())
 
     try:
+        # Wait for Hacker News story rows to load.
         page.locator("tr.athing").first.wait_for(
             state="attached",
-            timeout=20000
+            timeout=30000
         )
-    except PlaywrightTimeoutError:
-        print("Hacker News article rows were not found.")
-        print("Current URL:", page.url)
-        print("Page title:", page.title())
-        print("Page content:", page.locator("body").inner_text()[:1000])
 
+        # Wait for the story title links.
+        page.locator(
+            "tr.athing span.titleline > a"
+        ).first.wait_for(
+            state="attached",
+            timeout=15000
+        )
+
+    except PlaywrightTimeoutError:
+        print("Hacker News articles did not load.")
+        print("Page content:", page.locator("body").inner_text()[:1000])
         return []
 
     articles = []
     rows = page.locator("tr.athing")
 
-    for i in range(min(rows.count(), 10)):
+    for i in range(rows.count()):
+
+        if len(articles) >= ARTICLE_LIMIT:
+            break
+
         row = rows.nth(i)
+
         link = row.locator("span.titleline > a").first
 
         if link.count() == 0:
@@ -74,18 +90,35 @@ def collect_news(page):
         title = link.inner_text().strip()
         href = link.get_attribute("href")
 
-        if title and href:
-            if href.startswith("item?"):
-                href = "https://news.ycombinator.com/" + href
-            elif href.startswith("/"):
-                href = "https://news.ycombinator.com" + href
+        if not title or not href:
+            print(f"Skipping article {i + 1}: Missing title or URL")
+            continue
 
-            articles.append({
-                "title": title,
-                "link": href
-            })
+        # Convert relative URLs into absolute URLs.
+        article_url = urljoin(NEWS_URL, href)
 
-    print(f"Collected {len(articles)} Hacker News articles.")
+        # Validate the extracted URL.
+        if not article_url.startswith(("http://", "https://")):
+            print(f"Invalid URL skipped: {article_url}")
+            continue
+
+        articles.append({
+            "rank": len(articles) + 1,
+            "title": title,
+            "url": article_url,
+            "score": "N/A",
+            "source": "Hacker News"
+        })
+
+        print(f"\nArticle {len(articles)}:")
+        print("Title:", title)
+        print("URL:", article_url)
+
+    print(
+        f"\nSuccessfully collected "
+        f"{len(articles)} Hacker News articles."
+    )
+
     return articles
 
 

@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import traceback
 
 subprocess.run(
     [sys.executable, "-m", "playwright", "install", "chromium"],
@@ -132,17 +133,31 @@ if "pdf_path" not in st.session_state:
 # ---------------------------------------------------------
 
 def collect_latest_news():
-    """Collect fresh articles from both news sources."""
+    """Collect articles from both news sources."""
+
+    techcrunch_articles = []
+    hacker_articles = []
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         page = browser.new_page()
 
         try:
-            # Collect TechCrunch first
             techcrunch_articles = collect_techcrunch(page)
+            print(f"TechCrunch: {len(techcrunch_articles)} articles")
 
-            # Collect Hacker News second
+        except Exception:
+            print("TechCrunch collection failed:")
+            print(traceback.format_exc())
+
+        try:
             hacker_articles = collect_news(page)
+            print(f"Hacker News: {len(hacker_articles)} articles")
+
+        except Exception:
+            print("Hacker News collection failed:")
+            print(traceback.format_exc())
+
         finally:
             browser.close()
 
@@ -249,6 +264,7 @@ if st.button(
         st.session_state.pdf_ready = False
         # st.error(f"An error occurred: {exc}")
         st.error(f"Please perform a re run")
+        print(exc)
 
 
 # ---------------------------------------------------------
@@ -357,13 +373,11 @@ if st.session_state.pdf_ready:
                         if success:
                             st.success(
                                 "The email was accepted by the SMTP server "
-                                "for all recipients. This does not guarantee "
-                                "final inbox delivery."
+                                "for all recipients."
                             )
                         else:
                             st.error(
-                                "Email sending failed. Check the terminal "
-                                "output for details."
+                                "Email sending failed. Please try again"
                             )
                     except Exception as exc:
                         st.error(f"Email error: {exc}")
