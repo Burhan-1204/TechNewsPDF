@@ -34,93 +34,140 @@ PDF_PATH = desktop / "Daily_News.pdf"
 # ---------------------------------------------------------
 # Collect news from Hacker News page
 # ---------------------------------------------------------
-
 def collect_news(page):
-    """Collect the top 10 Hacker News stories with titles and URLs."""
-
-    print("\nOpening Hacker News...")
-
-    response = page.goto(
-        NEWS_URL,
-        wait_until="domcontentloaded",
-        timeout=60000
-    )
-
-    if response:
-        print("HTTP Status:", response.status)
-
-    print("Current URL:", page.url)
-    print("Page title:", page.title())
-
-    try:
-        # Wait for Hacker News story rows to load.
-        page.locator("tr.athing").first.wait_for(
-            state="attached",
-            timeout=30000
-        )
-
-        # Wait for the story title links.
-        page.locator(
-            "tr.athing span.titleline > a"
-        ).first.wait_for(
-            state="attached",
-            timeout=15000
-        )
-
-    except PlaywrightTimeoutError:
-        print("Hacker News articles did not load.")
-        print("Page content:", page.locator("body").inner_text()[:1000])
-        return []
-
     articles = []
-    rows = page.locator("tr.athing")
+    hacker_news_url = "https://thehackernews.com/"
 
-    for i in range(rows.count()):
+    for attempt in range(1, 7):  # Initial attempt + 5 retries
+        try:
+            print(f"\nThe Hacker News attempt {attempt}/6")
 
-        if len(articles) >= ARTICLE_LIMIT:
-            break
+            page.goto(
+                hacker_news_url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
 
-        row = rows.nth(i)
+            page.wait_for_timeout(3000)
 
-        link = row.locator("span.titleline > a").first
+            # Wait for the main article containers
+            page.locator(
+                "div.body-post, a.story-link"
+            ).first.wait_for(
+                state="attached",
+                timeout=20000
+            )
 
-        if link.count() == 0:
-            continue
+            articles = []
 
-        title = link.inner_text().strip()
-        href = link.get_attribute("href")
+            # Primary article container
+            article_cards = page.locator("div.body-post")
 
-        if not title or not href:
-            print(f"Skipping article {i + 1}: Missing title or URL")
-            continue
+            if article_cards.count() > 0:
+                for card in article_cards.all():
+                    try:
+                        title_locator = card.locator(
+                            "h2.home-title"
+                        ).first
 
-        # Convert relative URLs into absolute URLs.
-        article_url = urljoin(NEWS_URL, href)
+                        link_locator = card.locator(
+                            "a.story-link"
+                        ).first
 
-        # Validate the extracted URL.
-        if not article_url.startswith(("http://", "https://")):
-            print(f"Invalid URL skipped: {article_url}")
-            continue
+                        title = (
+                            title_locator.inner_text().strip()
+                            if title_locator.count() > 0
+                            else ""
+                        )
 
-        articles.append({
-            "rank": len(articles) + 1,
-            "title": title,
-            "url": article_url,
-            "score": "N/A",
-            "source": "Hacker News"
-        })
+                        article_url = (
+                            link_locator.get_attribute("href")
+                            if link_locator.count() > 0
+                            else None
+                        )
 
-        print(f"\nArticle {len(articles)}:")
-        print("Title:", title)
-        print("URL:", article_url)
+                        if not title or not article_url:
+                            continue
 
-    print(
-        f"\nSuccessfully collected "
-        f"{len(articles)} Hacker News articles."
-    )
+                        articles.append({
+                            "rank": len(articles) + 1,
+                            "title": title,
+                            "url": article_url,
+                            "score": "N/A",
+                            "source": "The Hacker News"
+                        })
 
-    return articles
+                        if len(articles) >= ARTICLE_LIMIT:
+                            break
 
+                    except Exception as error:
+                        print(f"Skipping article: {error}")
+                        continue
+
+            # Fallback if the main article container changes
+            if not articles:
+                print("Trying fallback article selectors...")
+
+                links = page.locator("a.story-link")
+
+                for link in links.all():
+                    try:
+                        article_url = link.get_attribute("href")
+
+                        title_locator = link.locator(
+                            "h2.home-title"
+                        )
+
+                        if title_locator.count() > 0:
+                            title = title_locator.first.inner_text().strip()
+                        else:
+                            title = link.inner_text().strip()
+
+                        if not title or not article_url:
+                            continue
+
+                        articles.append({
+                            "rank": len(articles) + 1,
+                            "title": title,
+                            "url": article_url,
+                            "score": "N/A",
+                            "source": "The Hacker News"
+                        })
+
+                        if len(articles) >= ARTICLE_LIMIT:
+                            break
+
+                    except Exception as error:
+                        print(f"Skipping fallback article: {error}")
+                        continue
+
+            if not articles:
+                raise Exception(
+                    "No valid articles found. HTML structure may have changed."
+                )
+
+            print(
+                f"Successfully collected {len(articles)} "
+                "articles from The Hacker News"
+            )
+
+            for article in articles:
+                print(article["title"])
+                print(article["url"])
+
+            return articles
+
+        except Exception as error:
+            print(
+                f"Attempt {attempt}/6 failed: {error}"
+            )
+
+            if attempt < 6:
+                print("Retrying in 3 seconds...")
+                page.wait_for_timeout(3000)
+
+    print("The Hacker News collection failed after 6 attempts.")
+    return []
 
 # ---------------------------------------------------------
 # Collect news from TechCrunch
